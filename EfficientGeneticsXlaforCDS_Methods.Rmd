@@ -139,6 +139,10 @@ doQuery_modifiedOJV = function(inputFile, outFile, entity, identifier){
 }
 
 ASDcuigenes<-doQuery_modifiedOJV(ASDcuis, "ASDcuigenes.txt", "disease", "cui") ### NOTE: input file is object from previous command prior to doQuery function call
+
+#Remove dataframes from environment that are no longer neccesary
+rm(diseasecuis)
+rm(ASDcuis)
 ```
 
 2) Next, the list of ASD candidate genes was evaluated to identify genes that are specifically expressed in the tissue of most interest to ASD etiology (i.e., the human brain). Details for identifying genes with baseline expression in human tissue from GTEx are provided here: https://www.ebi.ac.uk/gxa/help/r-data-objects.html, here http://www.bioconductor.org/packages/release/bioc/html/ExpressionAtlas.html, and here https://www.ebi.ac.uk/arrayexpress/experiments/E-MTAB-5214/. Optional code is provided below if the user prefers. As the direct pull for all GTEx data is large and we were only interested in brain regions, included in the Genotype Tissue Expression (GTEx) project were downloaded from the Expression Atlas (https://www.ebi.ac.uk/gxa/home) and the resulting GTEx data frame was filtered for ASD risk genes.
@@ -158,12 +162,23 @@ ASDcuigenes <- ASDcuigenes %>%
 ASDcuigenesdistinct <- distinct(ASDcuigenes, c2.uniprotId, .keep_all = TRUE)
 ASDbraingenes <- left_join(ASDcuigenesdistinct, GTExbraindata, by='Gene.Name')
 ASDbraingenes <- mutate(ASDbraingenes, entrezgene=c2.geneId)
+
+#Remove dataframes from environment that are no longer neccesary
+rm(GTExbraindata)
+rm(ASDcuigenes)
+rm(ASDcuigenesdistinct)
 ```
 
 3) TopGO
 ``` {r eval=TRUE}
+#To install BiomaRt uncomment below
+#if (!requireNamespace("BiocManager", quietly = TRUE))
+#    install.packages("BiocManager")
+#BiocManager::install("biomaRt", version = "3.8")
+
 #Pull names for all protein coding genes known in humans that are included in Ensembl
 library(biomaRt)
+
 humangenes <- useMart("ensembl", dataset="hsapiens_gene_ensembl")
 listFilters(humangenes)
 listAttributes(humangenes)
