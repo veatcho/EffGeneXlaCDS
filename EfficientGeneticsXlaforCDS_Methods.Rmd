@@ -169,7 +169,7 @@ rm(ASDcuigenes)
 rm(ASDcuigenesdistinct)
 ```
 
-3) TopGO
+3) Run gene set analysis using TopGO to look for Gene Ontology defined biological processes with overrepresentation of ASD risk genes
 ``` {r eval=TRUE}
 #To install BiomaRt uncomment below
 #if (!requireNamespace("BiocManager", quietly = TRUE))
@@ -180,19 +180,22 @@ rm(ASDcuigenesdistinct)
 library(biomaRt)
 
 humangenes <- useMart("ensembl", dataset="hsapiens_gene_ensembl")
-listFilters(humangenes)
-listAttributes(humangenes)
-ensIDswithproteins<-getBM(attributes=c("ensembl_gene_id", "entrezgene", "protein_id"), filters = list('with_protein_id'=TRUE), mart=humangenes)
+#listFilters(humangenes)
+#listAttributes(humangenes)
+ensIDswithproteins<-getBM(attributes=c("ensembl_gene_id", "entrezgene", "protein_id", "external_gene_name"), filters = list('with_protein_id'=TRUE), mart=humangenes)
 ensIDswithproteins_distinctgenes <- distinct(ensIDswithproteins, entrezgene, .keep_all=TRUE)
 
+#Remove data from environment that are no longer neccesary
+rm(ensIDswithproteins)
+
 #Convert risk gene symbols to Ensembl IDs and create genes of interest list
-ASDentrezgeneIDs <- ASDcuigenesdistinct %>%
+ASDentrezgeneIDs <- ASDbraingenes %>%
   mutate(entrezgene=c2.geneId)
 
 ASDensIDs_gene.names <- inner_join(ASDentrezgeneIDs, ensIDswithproteins_distinctgenes, by="entrezgene")
 ASDensIDs <- ASDensIDs_gene.names %>%
   distinct(entrezgene, .keep_all=TRUE) %>%
-  select(ensembl_gene_id)
+  dplyr::select(ensembl_gene_id)
 
 #Run GSA of disorder-associated genes to identify Gene Ontoloy-defined biological processes with overrepresentation compared to all human genes
 #To Install TopGO uncomment:
@@ -226,7 +229,7 @@ ASD_GOBPdata<-new("topGOdata",
 ASDgene_BPGSA_classicfisher <- runTest(ASD_GOBPdata, algorithm = "classic", statistic = "fisher")
 
 #Create data.frame with overrepresented GO-defined Biological processes for comparison with mouse KO phenotypes
-ASDgene_BPGSA_classicfisher.results <- GenTable(ASD_GOBPdata, classicFisher = ASDgene_BPGSA_fisher, topNodes = 100)
+ASDgene_BPGSA_classicfisher.results <- GenTable(ASD_GOBPdata, classicFisher = ASDgene_BPGSA_classicfisher, topNodes = 100)
 
 ASDgeneBPs <- filter(ASDgene_BPGSA_classicfisher.results, grepl("< 1e-30",  classicFisher))
 
@@ -240,7 +243,22 @@ ASDGenes.in.SigGOIDs <- left_join(ASDbraingenes, Genes.in.SigGOIDs, by="entrezge
 ASDgenes.brain.SigBPs <- ASDGenes.in.SigGOIDs %>%
   group_by(c2.uniprotId) %>%
   mutate(nBPsassigned = n_distinct(GOALL)) %>%
-  distinct(c2.uniprotId, .keep_all = TRUE)
+  distinct(c2.uniprotId, .keep_all = TRUE) %>%
+  dplyr::select(c(3:20, 27))
+
+#Remove data from environment that are no longer neccesary
+rm(ASD_GOBPdata)
+rm(ASDgene_BPGSA_classicfisher)
+rm(ASDgene_BPGSA_classicfisher.results)
+rm(ensIDswithproteins_distinctgenes)
+rm(ASDensIDs)
+rm(ASDbraingenes)
+rm(humangenes)
+rm(Genes.in.SigGOIDs)
+rm(all_genes)
+rm(geneUniverse)
+rm(genesOfInterest)
+###Add comlumn indicating to which gene ontology categories each gene is assigned?
 ```
 
 4) Evaluate if proteins encoded by ASD risk genes are in a protein-protein interaction network with proteins encoded by ACMG genes
@@ -251,24 +269,64 @@ ACMGgenelist <- mutate(ACMGgenelist, external_gene_name=V1)
 ACMGgenelist <- inner_join(ACMGgenelist, ensIDswithproteins_distinctgenes, by="external_gene_name")
 
 #Export list for PPI analysis
-ACMGgenelistforPPI <- select(ACMGgenelist, ensembl_gene_id)
-ASD_ACMGlistforPPI <- rbind(ASDensIDs, ACMGgenelistforPPI)
+ACMGgenelistforPPI <- dplyr::select(ACMGgenelist, ensembl_gene_id)
+ASDensIDsforPPI <- dplyr::select(ASDensIDs_gene.names, ensembl_gene_id)
+ASD_ACMGlistforPPI <- rbind(ASDensIDsforPPI, ACMGgenelistforPPI)
 ASD_ACMGlistforPPI <- distinct(ASD_ACMGlistforPPI, ensembl_gene_id)
 write.csv(ASD_ACMGlistforPPI, file="ASD_ACMGlistforPPI.csv")
 
-#Ran PPI netwokr builder on exported list of genes in https://www.networkanalyst.ca/faces/home.xhtml using a Generic PPI and IMEx Interactome data
+#Ran PPI network builder on exported list of genes in https://www.networkanalyst.ca/faces/home.xhtml using a Generic PPI and IMEx Interactome data
 ASD_ACMGPPINetwork <- read.table(url("https://github.com/veatcho/Efficient-Genetics-Xla-for-CDS/blob/master/ACMG_ASDnetwork1.sif?raw=true"), header = FALSE, sep = "\t", stringsAsFactors = FALSE)
 
-#Determine how many proteints encoded by ASD risk genes are predicted to directly interact with proteins encoded by ACMG genes
-ASD_ACMGPPINetwork_1ACMG <- inner_join(ASD_ACMGPPINetwork, ACMGgenelist, by='V1')
-ASD_ACMGPPINetwork_1ACMG <- dplyr::select(ASD_ACMGPPINetwork_1ACMG, c(V1, V3))
-
+#Determine how many proteins encoded by ASD risk genes are predicted to directly interact with proteins encoded by ACMG genes
 ASDgenelist <- ASDensIDs_gene.names %>%
-  mutate(V1=as.character(c2.symbol))
-ASD_ACMGPPINetwork_1ASD <- inner_join(ASD_ACMGPPINetwork, ASDgenelist, by='V1')
-ASD_ACMGPPINetwork_1ASD <- dplyr::select(ASD_ACMGPPINetwork_1ASD, c(V1, V3))
+  mutate(V1=as.character(c2.symbol)) %>% 
+  mutate(V3=V1) %>%
+  dplyr::select(V1, V3)
 
-ASD_ACMGPPINetwork_1 <- rbind.data.frame(ASD_ACMGPPINetwork_1ASD, ASD_ACMGPPINetwork_1ACMG)
+#Create list of protein 1 connections
+ASD_ACMGPPINetwork_1ACMG <- semi_join(ASD_ACMGPPINetwork, ACMGgenelist, by='V1')
+ASD_ACMGPPINetwork_1ACMG <- dplyr::select(ASD_ACMGPPINetwork_1ACMG, c(V1, V3))
+ASD_ACMGPPINetwork_1ACMGtoASD <-  semi_join(ASD_ACMGPPINetwork_1ACMG, ASDgenelist, by='V3')
+ASD_ACMGPPINetwork_1ASD <- semi_join(ASD_ACMGPPINetwork, ASDgenelist, by='V1')
+ASD_ACMGPPINetwork_1ASD <- dplyr::select(ASD_ACMGPPINetwork_1ASD, c(V1, V3))
+ACMGgenelist <- ASD_ACMGPPINetwork_1ASD %>%
+  mutate(V3=V1)
+ASD_ACMGPPINetwork_1ASDtoACMG <- semi_join(ASD_ACMGPPINetwork_1ASD, ACMGgenelist, by='V3')
+ASD_ACMGPPINetwork_1 <- rbind.data.frame(ASD_ACMGPPINetwork_1ACMGtoASD, ASD_ACMGPPINetwork_1ASDtoACMG)
+
+#Create list of protein 2 connections
+ASD_ACMGPPINetwork_2ACMG <- semi_join(ASD_ACMGPPINetwork, ACMGgenelist, by='V3')
+ASD_ACMGPPINetwork_2ACMG <- dplyr::select(ASD_ACMGPPINetwork_2ACMG, c(V1, V3))
+ASD_ACMGPPINetwork_2ASDtoACMG <-  semi_join(ASD_ACMGPPINetwork_2ACMG, ASDgenelist, by='V1')
+ASD_ACMGPPINetwork_2ASD <- semi_join(ASD_ACMGPPINetwork, ASDgenelist, by='V3')
+ASD_ACMGPPINetwork_2ASD <- dplyr::select(ASD_ACMGPPINetwork_2ASD, c(V1, V3))
+ASD_ACMGPPINetwork_2ACMGtoASD <- semi_join(ASD_ACMGPPINetwork_2ASD, ACMGgenelist, by='V1')
+ASD_ACMGPPINetwork_proteinsofinterest <- rbind.data.frame(ASD_ACMGPPINetwork_1, ASD_ACMGPPINetwork_2ACMGtoASD, ASD_ACMGPPINetwork_2ASDtoACMG)
+
+#Identify ASD genes that encode proteins that are recommended to test by the ACMG or directly interact with ACMG gene proteins
+ASDgenes.brain.SigBPs$ACMGGene<- ASDgenes.brain.SigBPs$Gene.Name %in% ACMGgenelist$V1
+
+ASDgenes.brain.SigBPs$ACMG.PPI<- ASDgenes.brain.SigBPs$Gene.Name %in% ASD_ACMGPPINetwork_proteinsofinterest$V1 | ASDgenes.brain.SigBPs$Gene.Name %in% ASD_ACMGPPINetwork_proteinsofinterest$V3
+
+##Determine how many ACMG proteins with which each ASD protein interacts?
+
+#Remove data from environment that are no longer neccesary
+rm(ACMGgenelist)
+rm(ASDgenelist)
+rm(ACMGgenelistforPPI)
+rm(ASDensIDsforPPI)
+rm(ASD_ACMGlistforPPI)
+rm(ASD_ACMGPPINetwork)
+rm(ASD_ACMGPPINetwork_1ACMG)
+rm(ASD_ACMGPPINetwork_1ACMGtoASD)
+rm(ASD_ACMGPPINetwork_1ASD)
+rm(ASD_ACMGPPINetwork_1ASDtoACMG)
+rm(ASD_ACMGPPINetwork_1)
+rm(ASD_ACMGPPINetwork_2ACMG)
+rm(ASD_ACMGPPINetwork_2ASDtoACMG)
+rm(ASD_ACMGPPINetwork_2ASD)
+rm(ASD_ACMGPPINetwork_2ACMGtoASD)
 ```
 
 5) These genes were then be prioritized based on an mouse phenotype term that reflects symptoms in ASD when manipulated in mice, by querying the genotype-phenotype representational state transfer (REST) application program interface (API) from the International Mouse Phenotyping Consortium (IMPC; http://www.mousephenotype.org/). The goal was to identify ASD risk genes that when knocked out of mice have a phenotypic consequence (associated with p<0.05) that is comparable to top Gene Ontology-defined biological processes overrepresented for ASD risk genes. Details for requesting mouse-phenotype data can be found here: http://www.mousephenotype.org/data/documentation/data-access 
