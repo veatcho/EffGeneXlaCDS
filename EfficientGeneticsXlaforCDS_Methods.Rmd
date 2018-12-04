@@ -156,12 +156,12 @@ rm(ASDcuis)
 GTExbraindata <- read.table(url("https://github.com/veatcho/BMIN503_Final_Project/blob/master/E-MTAB-5214-query-resultsbrain_TPM.tsv?raw=true"), header = TRUE, sep = "\t", fill = TRUE, stringsAsFactors = FALSE)
 
 #Create dataframe with ASD candidate genes expressed in human brain
-ASDcuigenes <- ASDcuigenes %>% 
-      select(c2.geneId, c2.symbol, c2.uniprotId, c0.score) %>%
-      mutate(Gene.Name = as.character(c2.symbol))
+ASDcuigenes <- ASDcuigenes %>%
+  select(c2.geneId, Gene.Name = c2.symbol, c2.uniprotId, c0.score) %>%
+  mutate(Gene.Name = as.character(Gene.Name))
 ASDcuigenesdistinct <- distinct(ASDcuigenes, c2.uniprotId, .keep_all = TRUE)
 ASDbraingenes <- left_join(ASDcuigenesdistinct, GTExbraindata, by='Gene.Name')
-ASDbraingenes <- mutate(ASDbraingenes, entrezgene=c2.geneId)
+ASDbraingenes <- select(ASDbraingenes, EntrezGeneID=c2.geneId, Gene.Name, UniProtID=c2.uniprotId, DisGeNETscore=c0.score, EnsID.GTEx=Gene.ID, Brodman1909.area24=Brodmann..1909..area.24, Brodmann1909.area9=Brodmann..1909..area.9, Amygdala=amygdala, Caudate.Nucleus=caudate.nucleus, Cerebellar.Hemisphere=cerebellar.hemisphere, Cerebellum=cerebellum, Cerebral.Cortex=cerebral.cortex, Hippocampus.Proper=hippocampus.proper, Hypothalamus=hypothalamus, Nucleus.Accumbens=nucleus.accumbens, Pituitary.Gland=pituitary.gland, Putamen=putamen, Substantia.Nigra=substantia.nigra)
 
 #Remove dataframes from environment that are no longer neccesary
 rm(GTExbraindata)
@@ -169,7 +169,7 @@ rm(ASDcuigenes)
 rm(ASDcuigenesdistinct)
 ```
 
-3) Run gene set analysis using TopGO to look for Gene Ontology defined biological processes with overrepresentation of ASD risk genes
+3) Run gene set analysis using TopGO to look for Gene Ontology-defined biological processes with overrepresentation of ASD risk genes
 ``` {r eval=TRUE}
 #To install BiomaRt uncomment below
 #if (!requireNamespace("BiocManager", quietly = TRUE))
@@ -177,6 +177,7 @@ rm(ASDcuigenesdistinct)
 #BiocManager::install("biomaRt", version = "3.8")
 
 #Pull names for all protein coding genes known in humans that are included in Ensembl
+#Following load of biomaRt package eed to specify dplyr::select
 library(biomaRt)
 
 humangenes <- useMart("ensembl", dataset="hsapiens_gene_ensembl")
@@ -189,12 +190,12 @@ ensIDswithproteins_distinctgenes <- distinct(ensIDswithproteins, entrezgene, .ke
 rm(ensIDswithproteins)
 
 #Convert risk gene symbols to Ensembl IDs and create genes of interest list
-ASDentrezgeneIDs <- ASDbraingenes %>%
-  mutate(entrezgene=c2.geneId)
+ensIDswithproteins_distinctgenes <- ensIDswithproteins_distinctgenes %>%
+  mutate(EntrezGeneID=entrezgene)
 
-ASDensIDs_gene.names <- inner_join(ASDentrezgeneIDs, ensIDswithproteins_distinctgenes, by="entrezgene")
+ASDensIDs_gene.names <- inner_join(ASDbraingenes [, c(1)], ensIDswithproteins_distinctgenes, by="EntrezGeneID")
 ASDensIDs <- ASDensIDs_gene.names %>%
-  distinct(entrezgene, .keep_all=TRUE) %>%
+  distinct(EntrezGeneID, .keep_all=TRUE) %>%
   dplyr::select(ensembl_gene_id)
 
 #Run GSA of disorder-associated genes to identify Gene Ontoloy-defined biological processes with overrepresentation compared to all human genes
@@ -236,28 +237,31 @@ ASDgeneBPs <- filter(ASDgene_BPGSA_classicfisher.results, grepl("< 1e-30",  clas
 #To pull gene alias' that are assigned to significantly enriched GO terms
 ASDGenes.GOIDs <- c(ASDgeneBPs$GO.ID)
 Genes.in.SigGOIDs <- AnnotationDbi::select(org.Hs.eg.db, keys=ASDGenes.GOIDs, columns=c("ALIAS", "ENSEMBL", "ENTREZID"), keytype="GOALL")
-Genes.in.SigGOIDs <- mutate(Genes.in.SigGOIDs, entrezgene=as.integer(ENTREZID))
-ASDGenes.in.SigGOIDs <- left_join(ASDbraingenes, Genes.in.SigGOIDs, by="entrezgene")
+Genes.in.SigGOIDs <- mutate(Genes.in.SigGOIDs, EntrezGeneID=as.integer(ENTREZID))
+ASDGenes.in.SigGOIDs <- left_join(ASDbraingenes, Genes.in.SigGOIDs, by="EntrezGeneID")
 
 #Determine to how many different overrepresented GOBPs each gene is assigned
-ASDgenes.brain.SigBPs <- ASDGenes.in.SigGOIDs %>%
-  group_by(c2.uniprotId) %>%
+ASDGenes.Brain.SigBPs <- ASDGenes.in.SigGOIDs %>%
+  group_by(UniProtID) %>%
   mutate(nBPsassigned = n_distinct(GOALL)) %>%
-  distinct(c2.uniprotId, .keep_all = TRUE) %>%
-  dplyr::select(c(3:20, 27))
+  distinct(UniProtID, .keep_all = TRUE) %>%
+  dplyr::select(c(1:18, 25))
+
+#Retain information regarding assignment of genes to specific GO Terms with evidence codes
+ASDGenes.in.SigGOIDs <- dplyr::select(ASDGenes.in.SigGOIDs, EntrezGeneID, Gene.Name, UniProtID, GO.BiologicalProcess=GOALL, GO.Evidence=EVIDENCEALL, EnsID=ENSEMBL)
 
 #Remove data from environment that are no longer neccesary
 rm(ASD_GOBPdata)
 rm(ASDgene_BPGSA_classicfisher)
 rm(ASDgene_BPGSA_classicfisher.results)
-rm(ensIDswithproteins_distinctgenes)
 rm(ASDensIDs)
 rm(ASDbraingenes)
-rm(humangenes)
 rm(Genes.in.SigGOIDs)
 rm(all_genes)
 rm(geneUniverse)
 rm(genesOfInterest)
+rm(humangenes)
+rm(ASDgeneBPs)
 ###Add comlumn indicating to which gene ontology categories each gene is assigned?
 ```
 
@@ -280,7 +284,7 @@ ASD_ACMGPPINetwork <- read.table(url("https://github.com/veatcho/Efficient-Genet
 
 #Determine how many proteins encoded by ASD risk genes are predicted to directly interact with proteins encoded by ACMG genes
 ASDgenelist <- ASDensIDs_gene.names %>%
-  mutate(V1=as.character(c2.symbol)) %>% 
+  mutate(V1=external_gene_name) %>% 
   mutate(V3=V1) %>%
   dplyr::select(V1, V3)
 
@@ -305,13 +309,14 @@ ASD_ACMGPPINetwork_2ACMGtoASD <- semi_join(ASD_ACMGPPINetwork_2ASD, ACMGgenelist
 ASD_ACMGPPINetwork_proteinsofinterest <- rbind.data.frame(ASD_ACMGPPINetwork_1, ASD_ACMGPPINetwork_2ACMGtoASD, ASD_ACMGPPINetwork_2ASDtoACMG)
 
 #Identify ASD genes that encode proteins that are recommended to test by the ACMG or directly interact with ACMG gene proteins
-ASDgenes.brain.SigBPs$ACMGGene<- ASDgenes.brain.SigBPs$Gene.Name %in% ACMGgenelist$V1
+ASDGenes.Brain.SigBPs$ACMGGene<- ASDGenes.Brain.SigBPs$Gene.Name %in% ACMGgenelist$V1
 
-ASDgenes.brain.SigBPs$ACMG.PPI<- ASDgenes.brain.SigBPs$Gene.Name %in% ASD_ACMGPPINetwork_proteinsofinterest$V1 | ASDgenes.brain.SigBPs$Gene.Name %in% ASD_ACMGPPINetwork_proteinsofinterest$V3
+ASDGenes.Brain.SigBPs$ACMG.PPI<- ASDGenes.Brain.SigBPs$Gene.Name %in% ASD_ACMGPPINetwork_proteinsofinterest$V1 | ASDGenes.Brain.SigBPs$Gene.Name %in% ASD_ACMGPPINetwork_proteinsofinterest$V3
 
 ##Determine how many ACMG proteins with which each ASD protein interacts?
 
 #Remove data from environment that are no longer neccesary
+rm(ensIDswithproteins_distinctgenes)
 rm(ACMGgenelist)
 rm(ASDgenelist)
 rm(ACMGgenelistforPPI)
@@ -332,6 +337,7 @@ rm(ASD_ACMGPPINetwork_2ACMGtoASD)
 5) These genes were then be prioritized based on an mouse phenotype term that reflects symptoms in ASD when manipulated in mice, by querying the genotype-phenotype representational state transfer (REST) application program interface (API) from the International Mouse Phenotyping Consortium (IMPC; http://www.mousephenotype.org/). The goal was to identify ASD risk genes that when knocked out of mice have a phenotypic consequence (associated with p<0.05) that is comparable to top Gene Ontology-defined biological processes overrepresented for ASD risk genes. Details for requesting mouse-phenotype data can be found here: http://www.mousephenotype.org/data/documentation/data-access 
 ``` {r eval=TRUE}
 library('jsonlite')
+library(reshape2)
 #Identify genes that when knocked out of mice are associated (p<0.05) with ASD-related symptoms
 #Note: must pull 'top level terms' from IMPC
 
@@ -355,10 +361,32 @@ write(MouseKOASDtraitsgenes$genes, file="MouseKOASDtraitsgenes.txt")
 MouseKOASDtraitsgenes.hsortho <- read.table(url("https://github.com/veatcho/BMIN503_Final_Project/blob/master/MouseKO_ASDtraitsgenes_hsortho.xls?raw=true"), header = TRUE, sep = "\t", fill = TRUE, stringsAsFactors = FALSE)
 
 #Identify ASD risk genes expressed in human brain that also have a relevant ASD-related phenotype when knocked out of mice
-ASDbraingenes <- mutate(ASDbraingenes, Human.GeneID = c2.geneId)
-ASDbraingenes.mousegenes <- left_join(ASDbraingenes, MouseKOASDtraitsgenes.hsortho[, c(1, 6)], by='Human.GeneID')
+ASDGenes.Brain.SigBPs <- mutate(ASDGenes.Brain.SigBPs, Human.GeneID = EntrezGeneID)
+ASDGenes.Brain.SigBPs.MouseKOs <- left_join(ASDGenes.Brain.SigBPs, MouseKOASDtraitsgenes.hsortho[, c(1, 6)], by='Human.GeneID')
 MouseKOASDtraits <- mutate(MouseKOASDtraits, Mouse.GeneID=MouseKOASDtraits$genes)
-ASDbraingenes.mouseKOpheno <- left_join(ASDbraingenes.mousegenes, MouseKOASDtraits, by='Mouse.GeneID')
+ASDGenes.Brain.SigBPs.MouseKOPhenotypes <- left_join(ASDGenes.Brain.SigBPs.MouseKOs, MouseKOASDtraits, by='Mouse.GeneID')
+
+#Determine how many ASD-related phenotypes were associated with knocking out each ASD risk gene
+ASDGenes.Brain.SigBPs.MouseKOs <- ASDGenes.Brain.SigBPs.MouseKOPhenotypes %>%
+  group_by(UniProtID) %>%
+  mutate(nMouseKOPhenotypeX = n_distinct(phenotype.x), nMouseKOPhenotypeY = n_distinct(phenotype.y), nMouseKOPhenotype=(nMouseKOPhenotypeX+nMouseKOPhenotypeY)) %>%
+  distinct(UniProtID, .keep_all = TRUE) %>%
+  dplyr::select(c(1:23, 29))
+
+#Retain information regarding assignment of genes to specific GO Terms with evidence codes
+ASDGenes.Brain.SigBPs.MouseKOPhenotypes <- ASDGenes.Brain.SigBPs.MouseKOPhenotypes %>%
+  filter(!is.na(Mouse.GeneID)) %>%
+  dplyr::select(c(1:3, 23:26))
+
+#Remove data from environment that are no longer neccesary
+rm(AbnormalBehaviorNeuroMouse0.05)
+rm(AbnormalBehaviorNeuroMouseGenes)
+rm(AbnormalNervousSystemMouse0.05)
+rm(AbnormalNervousSystemMouseGenes)
+rm(MouseKOASDtraits)
+rm(MouseKOASDtraitsgenes)
+rm(MouseKOASDtraitsgenes.hsortho)
+rm(ASDbraingenes.mousegenes)
 ```
 
 6) To identify currently approved drugs that target or have drug ontology to proteins encoded by the prioritized genes implicated in ASD, a software request was sent via RCurl to the Pharos API (https://pharos.nih.gov/idg/dto).
@@ -367,13 +395,11 @@ ASDbraingenes.mouseKOpheno <- left_join(ASDbraingenes.mousegenes, MouseKOASDtrai
 targets_pharos <- fromJSON("https://pharos.nih.gov/idg/api/v1/targets?facet=IDG+Development+Level&top=25000&wt=json&indent=1")
 drugtargets<-data.frame(genes=targets_pharos$content$gene[c(1:20244)], idgTDL=targets_pharos$content$idgTDL[c(1:20244)], uniprotId=targets_pharos$content$accession[c(1:20244)], stringsAsFactors = FALSE)
 
-#Pull tclin level (i.e. FDA-aproved) targets
-#To identify expected number of Tclin targets queried https://pharos.nih.gov/idg/targets?facet=IDG+Development+Level/Tclin
-tclintargets <- filter(drugtargets, grepl("Tclin", idgTDL))
-
 #Identify ASD risk genes expressed in human brain, have a relevant ASD-related phenotype when knocked out of mice and are FDA-approved drug targets
-tclintargets<-mutate(tclintargets, Gene.Name=genes)
-ASDbraingenes.mousepheno.drugtarget <- left_join(ASDbraingenes.mouseKOpheno, tclintargets, by='Gene.Name')
+drugtargets <- drugtargets %>%
+  dplyr::select(Gene.Name=genes, idgTDL, UniProtID=uniprotId)
+
+ASDGenes.DrugTarget <- left_join(ASDGenes.Brain.SigBPs.MouseKO, drugtargets, by='Gene.Name')
 ```
 
 7) PharmGKB data were reviewed (no API available yet) to identify evidence of genes with variants that influence individual response to drugs
@@ -493,7 +519,7 @@ ggplot(data=ASDgenemousekosmelt, aes(x=value, y=ngenes.mouseKOpheno, fill=value)
       xlab("Phenotypes of Interest") + ylab("Number of ASD Genes with Phenotype in KO") +
       labs(fill = "Phenotypes of Interest") +
       theme(axis.text.x=element_blank()) +
-      scale_y_continuous(breaks=seq(0,40,5)) 
+      scale_y_continuous(breaks=seq(0,40,5))
 
 #Compare distribution of mouse phenotypes when KOing ASD genes to random set of protein coding genes
 Randomgenemousekos <- randombraingenes1.mouseKOpheno %>%
