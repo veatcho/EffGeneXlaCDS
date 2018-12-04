@@ -171,7 +171,7 @@ rm(ASDcuigenesdistinct)
 
 3) Run gene set analysis using TopGO to look for Gene Ontology-defined biological processes with overrepresentation of ASD risk genes
 ``` {r eval=TRUE}
-#To install BiomaRt uncomment below
+#To install BiomaRt uncomment below:
 #if (!requireNamespace("BiocManager", quietly = TRUE))
 #    install.packages("BiocManager")
 #BiocManager::install("biomaRt", version = "3.8")
@@ -194,7 +194,7 @@ rm(humangenes)
 ensIDswithproteins_distinctgenes <- ensIDswithproteins_distinctgenes %>%
   mutate(EntrezGeneID=entrezgene)
 
-ASDensIDs_gene.names <- inner_join(ASDbraingenes[, c(1)], ensIDswithproteins_distinctgenes, by="EntrezGeneID")
+ASDensIDs_gene.names <- inner_join(dplyr::select(ASDbraingenes, c(1)), ensIDswithproteins_distinctgenes, by="EntrezGeneID")
 ASDensIDs <- ASDensIDs_gene.names %>%
   distinct(EntrezGeneID, .keep_all=TRUE) %>%
   dplyr::select(ensembl_gene_id)
